@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ListaProdutoDTO } from './dto/ListaProduto.dto';
 import { ProdutoEntity } from './produto.entity';
@@ -17,13 +17,7 @@ export class ProdutoService {
   async criaProduto(dadosProduto: CriaProdutoDTO) {
     const produtoEntity = new ProdutoEntity();
 
-    produtoEntity.nome = dadosProduto.nome;
-    produtoEntity.valor = dadosProduto.valor;
-    produtoEntity.quantidadeDisponivel = dadosProduto.quantidadeDisponivel;
-    produtoEntity.descricao = dadosProduto.descricao;
-    produtoEntity.categoria = dadosProduto.categoria;
-    produtoEntity.caracteristicas = dadosProduto.caracteristicas;
-    produtoEntity.imagens = dadosProduto.imagens;
+    Object.assign(ProdutoEntity, <ProdutoEntity>dadosProduto);
 
     return this.produtoRepository.save(produtoEntity);
   }
@@ -49,11 +43,19 @@ export class ProdutoService {
 
   async atualizaProduto(id: string, novosDados: AtualizaProdutoDTO) {
     const entityName = await this.produtoRepository.findOneBy({ id });
-    Object.assign(entityName, novosDados);
+
+    if (entityName === null) {
+      throw new NotFoundException('produto não encontrado');
+    }
+    Object.assign(entityName, novosDados as ProdutoEntity);
+
     return this.produtoRepository.save(entityName);
   }
 
   async deletaProduto(id: string) {
+    if (!id) {
+      throw new NotFoundException('id não encontrado');
+    }
     await this.produtoRepository.delete(id);
   }
 }

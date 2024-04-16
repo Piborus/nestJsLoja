@@ -1,4 +1,9 @@
-import { Injectable } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CriaPedidoDTO } from './dto/CriaPedido.dto';
 import { AtualizaPedidoDto } from './dto/AtualizaPedido.dto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -20,27 +25,64 @@ export class PedidoService {
     private readonly produtoRepository: Repository<ProdutoEntity>,
   ) {}
 
+  private async bucaUsuario(id) {
+    const usuario = await this.usuarioRepository.findOneBy({ id });
+
+    if (usuario === null) {
+      throw new NotFoundException('usuário não encontrado');
+    }
+
+    return usuario;
+  }
+
+  private tratarDadosDoPedido(
+    dadosDoPedido: CriaPedidoDTO,
+    produtosRelacionados: ProdutoEntity[],
+  ) {
+    dadosDoPedido.itensPedido.forEach((itemPedido) => {
+      const produtoRelacionado = produtosRelacionados.find(
+        (produto) => produto.id === itemPedido.produtoId,
+      );
+
+      if (produtoRelacionado === undefined) {
+        throw new NotFoundException(
+          `O produto ${itemPedido.produtoId} não foi encontrado`,
+        );
+      }
+
+      if (itemPedido.quantidade > produtoRelacionado.quantidadeDisponivel) {
+        throw new BadRequestException(
+          `A quantidade solicitada (${itemPedido.quantidade}) é maior do que a disponível (${produtoRelacionado.quantidadeDisponivel}) para o produto ${produtoRelacionado.nome}.`,
+        );
+      }
+    });
+  }
+
   async cadastraPedido(usuarioId: string, dadosDoPedido: CriaPedidoDTO) {
-    const usuario = await this.usuarioRepository.findOneBy({ id: usuarioId });
+    const usuario = await this.bucaUsuario(usuarioId);
+
     const produtosIds = dadosDoPedido.itensPedido.map(
       (itemPedido) => itemPedido.produtoId,
     );
-
-    const produtosRelacionados = await this.produtoRepository.findBy({
-      id: In(produtosIds),
-    });
     const pedidoEntity = new PedidoEntity();
 
     pedidoEntity.status = StatusPedido.EM_PROCESSAMENTO;
     pedidoEntity.usuario = usuario;
 
+    const produtosRelacionados = await this.produtoRepository.findBy({
+      id: In(produtosIds),
+    });
+
+    this.tratarDadosDoPedido(dadosDoPedido, produtosRelacionados);
+
     const itensPedidoEntidades = dadosDoPedido.itensPedido.map((itemPedido) => {
       const produtoRelacionado = produtosRelacionados.find(
         (produto) => produto.id === itemPedido.produtoId,
       );
+
       const itemPedidoEntity = new ItemPedidoEntity();
-      itemPedidoEntity.produto = produtoRelacionado;
-      itemPedidoEntity.precoVenda = produtoRelacionado.valor;
+      itemPedidoEntity.produto = produtoRelacionado!;
+      itemPedidoEntity.precoVenda = produtoRelacionado!.valor;
       itemPedidoEntity.quantidade = itemPedido.quantidade;
       itemPedidoEntity.produto.quantidadeDisponivel -= itemPedido.quantidade;
       return itemPedidoEntity;
@@ -58,6 +100,10 @@ export class PedidoService {
     return pedidoCriado;
   }
   async obtemPedidosDeUsuario(usuarioId: string) {
+    const usuario = await this.bucaUsuario(usuarioId);
+    if (!usuario) {
+      throw new NotFoundException('usuário não encontrado');
+    }
     return this.pedidoRepository.find({
       where: {
         usuario: { id: usuarioId },
@@ -69,10 +115,28 @@ export class PedidoService {
   }
 
   async atualizaPedido(id: string, dto: AtualizaPedidoDto) {
+    /*try {
+      this.validateUUID(id);
+    } catch (error) {
+      console.error(error.message);
+      throw new BadRequestException('UUID inválido');
+    }*/
     const pedido = await this.pedidoRepository.findOneBy({ id });
 
-    Object.assign(pedido, dto);
+    if (pedido === null) {
+      throw new NotFoundException('Pedido não encontrado');
+    }
+
+    Object.assign(pedido, dto as PedidoEntity);
 
     return this.pedidoRepository.save(pedido);
+  }
+
+  validateUUID(id: string) {
+    const uuidRegex =
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+    if (!uuidRegex.test(id)) {
+      throw new Error('UUID no formato incorreto');
+    }
   }
 }
