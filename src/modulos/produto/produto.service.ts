@@ -22,6 +22,29 @@ export class ProdutoService {
     return this.produtoRepository.save(produtoEntity);
   }
 
+  async listaUmProduto(id: string) {
+    const produtoSalvo = await this.produtoRepository.findOne({
+      where: { id },
+      relations: {
+        imagens: true,
+        caracteristicas: true,
+      },
+    });
+
+    if (!produtoSalvo) {
+      throw new NotFoundException('produto não encontrado');
+    }
+
+    const retorna = {
+      id: produtoSalvo.id,
+      nome: produtoSalvo.nome,
+      caracteristicas: produtoSalvo.caracteristicas,
+      imagens: produtoSalvo.imagens,
+    };
+
+    return retorna;
+  }
+
   async listProdutos() {
     const produtosSalvos = await this.produtoRepository.find({
       relations: {
